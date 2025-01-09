@@ -141,24 +141,23 @@ string_to_hexa:
     mov     ecx, [ebp + 4*2]                    ;size
     mov     ebx, input_buffer                   ;string
 
-    rcr     cl, 1
+    mov edi, ecx
+
+    rcr     edi, 1
     jnc     even_size
     ; odd size
-    rcl     cl, 1
     xor     eax, eax
     mov     al, [ebx]
     push    eax
     call    make_hexa_num
     add     esp, 4
-    mov     byte [esi], al
+    mov     byte [esi + edi], al
 
     inc     ebx
     dec     cl
-    inc     edi
-    jmp     continue_
 
 even_size:
-    rcl     cl, 1
+    dec     edi
 continue_:
     cmp     cl, 0
     jle     end_string_to_hexa
@@ -185,7 +184,7 @@ continue_:
 
     add     cl, -2
     add     ebx, 2
-    inc     edi
+    dec     edi
     jmp     continue_
 
 end_string_to_hexa:
@@ -302,24 +301,12 @@ sum_loop:
     mov bl, byte [ebx]    ; Load byte from smaller array into BL
 
     ; Add the two bytes with carry
+carry:
     add al, cl            ;adding the last carry
-    xor ecx,ecx
+    mov ecx,0
     adc cl, 0             ;if carried,, move it to next iteration
     add al, bl            ; AL = AL + BL (addition)
     adc cl, 0             ; Add the carry to CL (to the next addition)
-
-    ; push edx
-    ; push ecx
-    ; push edi
-    ; push eax
-    ; mov eax, hex_format
-    ; push eax
-    ; call printf
-    ; add esp,4
-    ; pop eax
-    ; pop edi
-    ; pop ecx
-    ; pop edx
 
     ; Store the result in the result array
     mov byte [edi], al    ; Store the result byte in the result array
@@ -344,7 +331,7 @@ finish_smaller_array:
     mov edx, [ebp - 8]
     sub edx, esi                ;get the size of bytes to complete
     
-    jz equal_size        ; If no bytes are left in the larger array, jump to finish_addition
+    jz finish_addition        ; If no bytes are left in the larger array, jump to finish_addition
     
 
 process_larger_array:
@@ -355,8 +342,10 @@ process_larger_array:
     mov al, byte [eax]    ; Load byte from larger array into AL
 
     ; Add the carry if any
+carry1:
     add al, cl             ; Add the last carry to AL
-    xor cl,cl              ; from now on no carry
+    mov ecx,0              ; from now on no carry
+    adc cl,0
 
     ; Store the result in the result array
     mov byte [edi], al    ; Store the result byte in the result array
@@ -374,12 +363,12 @@ process_larger_array:
     jz finish_addition
     jmp process_larger_array ; Continue if there are more bytes left in the larger array
     
-equal_size:
-    mov byte [edi], cl              ;if there was carry in last addition
+    
 
 finish_addition:
     ; The carry flag (CF) will indicate if there was an overflow in the final sum
     ; If desired, you can handle this overflow here
+    mov byte [edi], cl              ;if there was carry in last addition
     
     mov     eax, dword [ebp-4]          ;save the allocated array to return
     ; Clean up the stack
