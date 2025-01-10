@@ -4,13 +4,13 @@ ASM = nasm
 ASM_FLAGS = -f elf32 -g  -F dwarf
 LD_FLAGS = -m32
 
-all: $(ASM_FILE)
+all: multi
 
-$(ASM_FILE): $(ASM_FILE).o
-	$(CC) $(LD_FLAGS) -o $@ $^
+multi: multi.o
+	gcc -m32 multi.o -o multi
 
-$(ASM_FILE).o: $(ASM_FILE).asm
-	$(ASM) $(ASM_FLAGS) $<
-
+multi.o: multi.s
+	nasm -f elf32 multi.s -o multi.o
+	
 clean:
-	rm -f $(ASM_FILE) $(ASM_FILE).o
+	rm -f multi multi.o

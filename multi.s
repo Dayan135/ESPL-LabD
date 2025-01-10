@@ -4,28 +4,101 @@ section .bss
     struct1_num resb 300            ; Store multi-precision number (up to 300 bytes)
     struct2 resb 1                 ; Store size of the structure (unsigned char)
     struct2_num resb 300            ; Store multi-precision number (up to 300 bytes)
+    result resb 257           ; Buffer for PRmulti result (max size: 256 bytes + 1 for size)
 
 section .data
+    STATE dw 0xAC07           ; Global state variable (16-bit)
+    MASK dw 0xB400            ; Fibonacci LFSR mask (16-bit)
     x_struct: db 5
     x_num: db 0xaa, 1,2,0x44,0x4f
     y_struct: db 7
     y_num: db 0xab, 0xaa, 1,2,3,0x44,0x4f
-    format: db "%d",10,0
+    format: db "len = %d",10,0
     string_format: db "%s",10,0
     structs_got : db "structs got:", 10,0
     hex_format: db "%02hhx",0
     newLine: db 10,0
     prompt db "Enter a hexadecimal number: ", 0
     fgets_format db "%s", 0        ; Format for fgets
+    i_flag db "-I",0
+    r_flag db "-R",0
+    error_msg db "error! wrong argument.", 10 , 0
 
 section .text
     global main                  ; Make 'main' visible to the linker
-    extern printf, puts, fgets, stdin, malloc         ; Declare external C functions
+    extern printf, puts, fgets, stdin, malloc, strcmp         ; Declare external C functions
 
 main:
     push    ebp
     mov     ebp, esp
 
+    ; 1st step: check argc
+    ; if 1, use x_struct and y_struct
+    ; else if argv[1] == '-I', get numbers from user
+    ; else if argv[1] == '-R', generate pseudo random numbers
+    ; else, ? => error msg
+
+    mov eax, [ebp + 2 * 4]          ; eax <- argc
+    mov ebx, [ebp + 3 * 4]          ; ebx <- argv
+
+    cmp eax, 1
+    jne flag_check
+
+    ; if 1, use x_struct and y_struct
+    mov eax, x_struct
+    push eax
+    call print_struct
+
+
+    mov ebx, y_struct
+    push ebx
+    call print_struct
+    
+    jmp addNprint
+
+flag_check:
+    mov edx, [ebx + 4]              ; ebx <- argv[1]
+    push edx
+    mov ecx, i_flag
+    push ecx
+
+    call strcmp
+    add esp,8
+
+    cmp eax,0
+    je i_flag_on
+
+    mov ebx, [ebp + 3 * 4]          ; ebx <- argv
+    mov edx, [ebx + 4]              ; ebx <- argv[1]
+    push edx
+    mov ecx, r_flag
+    push ecx
+
+    call strcmp
+    add esp,8
+
+    cmp eax,0
+    je r_flag_on
+
+errorFlag:
+    mov eax, error_msg
+    push eax
+    call puts
+    jmp end_main
+
+r_flag_on:
+    mov eax, struct1
+    push eax
+    call genNprint
+cont0:
+    mov eax, struct2
+    push eax
+    call genNprint
+cont:
+
+    jmp addNprint
+
+i_flag_on:
     mov     eax, struct1
     push    eax
     call    get_and_create_struct
@@ -50,16 +123,100 @@ main:
     push ebx
     call print_struct
     
+
+addNprint:
     call add_multi
     add esp,8
 
     push eax
     call print_struct
 
+    jmp end_main
 
+end_main:
     mov     esp, ebp
     pop     ebp
     ret
+
+
+;;function genNprint
+; input: pointer to a struct
+; inserts into struct a struct of hexa num (up to 256 bytes)
+genNprint:
+    push ebp
+    mov ebp,esp
+    mov eax, [ebp+2*4]
+
+    push eax
+    call PRmulti
+    call print_struct
+    add esp,4
+    mov esp,ebp
+    pop ebp
+    ret
+
+rand_num:
+    ; Load STATE and MASK into registers
+    mov ax, [STATE]       ; Load STATE into AX
+    mov dx, [MASK]        ; Load MASK into DX
+
+    ; Mask relevant bits
+    and ax, dx            ; AX = STATE & MASK
+
+    ; Calculate parity of masked bits
+    xor cx, cx            ; Clear CX (parity accumulator)
+parity_loop:
+    shr ax, 1             ; Shift right AX
+    adc cx, 0             ; Add carry flag (parity bit) to CX
+    test ax, ax           ; Check if AX is zero
+    jnz parity_loop       ; Repeat if not zero
+    
+    and cx, 1             ; Final parity is in CX (1-bit result)
+
+    ; Shift STATE and update MSB with parity
+    mov ax, [STATE]       ; Reload STATE into AX
+    shr ax, 1             ; Logical right shift
+    shl cx, 15            ; Move parity bit to MSB position
+    or ax, cx             ; Set MSB based on parity
+    mov [STATE], ax       ; Save updated STATE
+
+    ; Return the updated STATE as the random number
+    movzx eax, ax         ; Zero-extend AX into EAX
+    ret
+
+; Assembly function: PRmulti
+PRmulti:
+    push ebp
+    mov ebp, esp
+
+    ; Generate the random length (8-bit random number)
+    xor ebx,ebx
+    call rand_num         ; Generate a random number
+    mov bl, al            ; Use low byte of random number as length
+    test bl, bl           ; Check if length is zero
+    jnz valid_length      ; If not zero, continue
+generate_length:
+    call rand_num         ; Generate another random number
+    mov bl, al            ; Use low byte of random number
+    test bl, bl           ; Check again
+    jz generate_length    ; Repeat if zero
+
+valid_length:
+    ; Generate and store multi-precision integer
+    mov edi, [ebp + 4 * 2]       ; Set result buffer pointer
+    mov [edi], bl
+    inc edi
+generate_bytes:
+    call rand_num         ; Generate a random number
+    mov [edi], al         ; Store AL in the result buffer
+    inc edi
+    dec ebx
+    jnz generate_bytes  
+
+    mov ebp,esp
+    pop ebp
+    ret
+
 
 ; function get_and_create_struct
 ; input: pointer tto unintialized struct
@@ -399,10 +556,7 @@ print_struct:
     mov     eax, [ebp + 2*4]
     xor     ecx, ecx
     mov     cl, [eax]
-    ; rcr     cl,1
-    ; jnc     con
-    ; inc     cl
-con:
+    
     add     eax, ecx
     mov     edx, hex_format
 
